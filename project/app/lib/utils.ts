@@ -162,3 +162,63 @@ export function orderStatusColor(status: string): string {
 export function ratingToStars(rating: number): string {
   return '★'.repeat(Math.round(rating)) + '☆'.repeat(5 - Math.round(rating));
 }
+
+// ─── Ticket Helpers (Part 2) ──────────────────────────────────────────────────
+
+import type { TicketStatus, ReturnStatus, TicketCategory } from './types';
+
+export function ticketStatusConfig(status: TicketStatus): {
+  label: string;
+  bg: string;
+  text: string;
+  dot: string;
+} {
+  const map: Record<TicketStatus, { label: string; bg: string; text: string; dot: string }> = {
+    open:      { label: 'Open',      bg: 'bg-blue-50',   text: 'text-blue-700',   dot: 'bg-blue-500' },
+    in_review: { label: 'In Review', bg: 'bg-amber-50',  text: 'text-amber-700',  dot: 'bg-amber-500' },
+    actioned:  { label: 'Actioned',  bg: 'bg-purple-50', text: 'text-purple-700', dot: 'bg-purple-500' },
+    resolved:  { label: 'Resolved',  bg: 'bg-green-50',  text: 'text-green-700',  dot: 'bg-green-500' },
+    closed:    { label: 'Closed',    bg: 'bg-zinc-100',  text: 'text-zinc-500',   dot: 'bg-zinc-400' },
+  };
+  return map[status];
+}
+
+export function returnStatusConfig(status: ReturnStatus): {
+  label: string;
+  bg: string;
+  text: string;
+} {
+  const map: Record<ReturnStatus, { label: string; bg: string; text: string }> = {
+    requested:   { label: 'Requested',   bg: 'bg-yellow-50', text: 'text-yellow-700' },
+    approved:    { label: 'Approved',    bg: 'bg-blue-50',   text: 'text-blue-700' },
+    rejected:    { label: 'Rejected',    bg: 'bg-red-50',    text: 'text-red-700' },
+    shipped_back:{ label: 'Shipped Back',bg: 'bg-indigo-50', text: 'text-indigo-700' },
+    received:    { label: 'Received',    bg: 'bg-purple-50', text: 'text-purple-700' },
+    refunded:    { label: 'Refunded',    bg: 'bg-green-50',  text: 'text-green-700' },
+  };
+  return map[status];
+}
+
+export function ticketCategoryLabel(cat: TicketCategory): string {
+  const map: Record<TicketCategory, string> = {
+    order_issue:      'Order Issue',
+    return_request:   'Return / Exchange',
+    exchange:         'Exchange',
+    product_question: 'Product Question',
+    shipping:         'Shipping',
+    billing:          'Billing',
+    other:            'Other',
+  };
+  return map[cat] ?? cat;
+}
+
+export function relativeTime(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  return `${days}d ago`;
+}

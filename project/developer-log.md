@@ -131,3 +131,85 @@
 - Review submission flow
 - Wishlist persistence
 - Search with Supabase full-text
+
+---
+
+## Part 2 — Customer Portal, Order Lifecycle & Realtime Support (Build Log)
+
+### Date
+2026-09-12
+
+### Scope
+Customer-facing self-service portal: profile/settings, order history with post-purchase workflows, and an integrated real-time support chat system.
+
+---
+
+### New Files
+
+#### Types (`app/lib/types.ts` — additions)
+- `TicketStatus`: `'open' | 'in_review' | 'actioned' | 'resolved' | 'closed'`
+- `TicketCategory`: 7 categories (order_issue, return_request, exchange, product_question, shipping, billing, other)
+- `ReturnStatus` / `ReturnReason`: enums mirroring DB
+- `SupportTicket`, `TicketMessage`, `ReturnItem`, `ReturnRequest`, `TicketNotification`
+
+#### Utils (`app/lib/utils.ts` — additions)
+- `ticketStatusConfig(status)` → `{label, bg, text, dot}` for consistent badge rendering
+- `returnStatusConfig(status)` → same pattern for return status
+- `ticketCategoryLabel(cat)` → human-readable category string
+- `relativeTime(iso)` → "2 hours ago" / "just now" etc.
+
+#### Supabase Client (`app/lib/supabaseClient.ts` — additions)
+- `fetchProfile()`, `updateProfile()`, `fetchOrders()`, `fetchTickets()`, `fetchTicket()`
+- `createTicket()`, `fetchTicketMessages()`, `sendTicketMessage()`
+- `fetchReturnRequests()`, `createReturnRequest()`
+- `fetchNotifications()`, `markNotificationsRead()`
+- `subscribeToTicketMessages(ticketId, onMessage)` — Supabase Realtime `postgres_changes` channel on `ticket_messages`
+- `subscribeToTicketStatus(ticketId, onUpdate)` — Realtime UPDATE on `support_tickets`
+
+#### Mock Data (`app/lib/mockData.ts` — additions)
+- `MOCK_USER` — Alex Morgan, `mock-user-001`
+- `MOCK_ORDERS` — 3 orders across `delivered`, `shipped`, `processing` statuses
+- `MOCK_TICKETS` — 3 tickets across categories/statuses
+- `MOCK_TICKET_MESSAGES` — keyed by ticket ID, includes system messages + agent replies
+- `MOCK_RETURNS` — 1 approved return request
+
+#### Database Migrations (`app/supabase/migrations.sql` — appended)
+- ENUMs: `ticket_status`, `ticket_category`, `return_status`, `return_reason`
+- Tables: `support_tickets`, `ticket_messages`, `return_requests`, `ticket_notifications`
+- Auto-triggers: `handle_ticket_status_transition()`, `notify_customer_on_agent_reply()`
+- RLS policies on all 4 new tables
+- Supabase Realtime publication: `ALTER PUBLICATION supabase_realtime ADD TABLE ticket_messages, support_tickets, ticket_notifications`
+
+#### Components
+- **`components/TicketStatusBadge.tsx`** — `TicketStatusBadge` (inline colored pill), `AnimatedTicketStatus` (entrance animation), `TicketStatusProgress` (5-step progress bar with connecting lines)
+- **`components/SettingsForm.tsx`** — contact info + shipping address form with SaveState (`idle|saving|success|error`) animated feedback, email/required validation
+- **`components/OrderCard.tsx`** — expandable order card with 5-step tracking progress, item checkboxes for return selection, action buttons for dispute/return (delivered orders only)
+- **`components/CreateTicketModal.tsx`** — dual-mode modal: `'ticket'` (general support with category select) and `'return'` (item selection + return reason); framer-motion backdrop + modal animation
+- **`components/TicketChat.tsx`** — optimistic update chat with: `pendingIds` ref to prevent realtime duplicates, `MessageBubble` (system strip / agent navy / own black), `TypingIndicator` (3 bouncing dots), date-grouped message feed, auto-resize textarea, Enter-to-send
+
+#### Pages
+- **`app/account/layout.tsx`** — tabbed shell (Profile / Orders / Support) with framer-motion `layoutId` sliding gold underline, account header, breadcrumb
+- **`app/account/page.tsx`** — QuickStats grid (orders, spend, tickets) + RecentOrders preview + SettingsForm
+- **`app/account/orders/page.tsx`** — status filter chips (All/Processing/Shipped/Delivered/Cancelled), staggered list animation, CreateTicketModal wired for both ticket and return flows
+- **`app/account/tickets/page.tsx`** — ticket list with status filter chips, "Open Ticket" CTA, staggered animation, empty state with first-ticket prompt
+- **`app/account/tickets/[id]/page.tsx`** — ticket detail: header card with subject/status/category/open date, `TicketStatusProgress`, attached order panel, full `TicketChat` (480px fixed height, realtime-ready)
+
+---
+
+### Architecture Notes — Part 2
+
+- **Realtime pattern**: `TicketChat` accepts `onSubscribe` as a prop, abstracting the Supabase channel. The mock passes `undefined` (no-op); production wires `subscribeToTicketMessages`. This makes the component fully testable without a live DB.
+- **Optimistic UI + dedup**: Outgoing messages are added immediately with a temp ID. On server confirm, the temp message is replaced. `pendingIds` ref prevents the realtime INSERT event from duplicating the confirmed message.
+- **Dual-mode modal**: `CreateTicketModal` handles both general tickets and return requests via a `mode` prop. Return mode renders item checkboxes and a return reason select; ticket mode shows a category select. Subject is auto-filled when an order is attached.
+- **Post-purchase actions**: The `OrderCard` renders "Get Help" and "Start Return / Return N Items" actions only for `delivered` orders. Item-level return pre-selects specific items in the modal.
+
+---
+
+### Next Steps (Parts 3+)
+
+- Supabase Auth integration (replace MOCK_USER with session.user)
+- Checkout flow with Stripe
+- Admin panel: ticket queue, agent reply interface
+- Order tracking webhook integration (carrier APIs)
+- Push/email notifications via ticket_notifications table
+- Review submission from delivered order items

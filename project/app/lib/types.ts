@@ -200,6 +200,99 @@ export interface NavItem {
   children?: NavItem[];
 }
 
+// ─── Support Tickets (Part 2) ─────────────────────────────────────────────────
+
+export type TicketStatus = 'open' | 'in_review' | 'actioned' | 'resolved' | 'closed';
+
+export type TicketCategory =
+  | 'order_issue'
+  | 'return_request'
+  | 'exchange'
+  | 'product_question'
+  | 'shipping'
+  | 'billing'
+  | 'other';
+
+export type ReturnStatus =
+  | 'requested'
+  | 'approved'
+  | 'rejected'
+  | 'shipped_back'
+  | 'received'
+  | 'refunded';
+
+export type ReturnReason =
+  | 'wrong_size'
+  | 'wrong_item'
+  | 'defective'
+  | 'not_as_described'
+  | 'changed_mind'
+  | 'other';
+
+export interface SupportTicket {
+  id: string;
+  ticket_number: string;
+  user_id: string;
+  order_id?: string;
+  subject: string;
+  category: TicketCategory;
+  status: TicketStatus;
+  priority: 1 | 2 | 3 | 4 | 5;
+  assigned_agent?: string;
+  resolved_at?: string;
+  closed_at?: string;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TicketMessage {
+  id: string;
+  ticket_id: string;
+  sender_id?: string;
+  sender_name: string;
+  content: string;
+  is_agent: boolean;
+  is_system: boolean;
+  attachments: string[];
+  created_at: string;
+}
+
+export interface ReturnItem {
+  order_item_index: number;
+  product_name: string;
+  color_name: string;
+  size: string;
+  quantity: number;
+  unit_price: number;
+}
+
+export interface ReturnRequest {
+  id: string;
+  return_number: string;
+  user_id: string;
+  order_id: string;
+  ticket_id?: string;
+  items: ReturnItem[];
+  reason: ReturnReason;
+  notes?: string;
+  status: ReturnStatus;
+  refund_amount?: number;
+  return_label?: string;
+  tracking_number?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TicketNotification {
+  id: string;
+  user_id: string;
+  ticket_id: string;
+  message: string;
+  read: boolean;
+  created_at: string;
+}
+
 // ─── Promotional ─────────────────────────────────────────────────────────────
 
 export interface HeroBanner {

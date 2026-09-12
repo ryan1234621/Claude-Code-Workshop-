@@ -1,6 +1,8 @@
 -- ============================================================
 -- PARMORE E-COMMERCE — COMPLETE DATABASE SCHEMA & RLS POLICIES
 -- ============================================================
+-- Part 1: Core schema, RLS, seed data (see below)
+-- Part 2: Support tickets, realtime chat, return requests (appended)
 
 -- Enable required extensions
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
@@ -406,3 +408,195 @@ VALUES
     true,
     'SS25'
   );
+
+-- ============================================================
+-- PART 2 — SUPPORT TICKETS, REALTIME CHAT, RETURN REQUESTS
+-- ============================================================
+
+-- ─── ENUMS (Part 2) ──────────────────────────────────────────────────────────
+
+CREATE TYPE ticket_status AS ENUM ('open', 'in_review', 'actioned', 'resolved', 'closed');
+CREATE TYPE ticket_category AS ENUM ('order_issue', 'return_request', 'exchange', 'product_question', 'shipping', 'billing', 'other');
+CREATE TYPE return_status AS ENUM ('requested', 'approved', 'rejected', 'shipped_back', 'received', 'refunded');
+CREATE TYPE return_reason AS ENUM ('wrong_size', 'wrong_item', 'defective', 'not_as_described', 'changed_mind', 'other');
+
+-- ─── SUPPORT TICKETS ─────────────────────────────────────────────────────────
+
+CREATE TABLE support_tickets (
+  id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  ticket_number   TEXT NOT NULL UNIQUE DEFAULT ('TKT-' || upper(substring(gen_random_uuid()::text, 1, 6))),
+  user_id         UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  order_id        UUID REFERENCES orders(id) ON DELETE SET NULL,
+  subject         TEXT NOT NULL,
+  category        ticket_category NOT NULL DEFAULT 'other',
+  status          ticket_status NOT NULL DEFAULT 'open',
+  priority        SMALLINT NOT NULL DEFAULT 1 CHECK (priority BETWEEN 1 AND 5),
+  assigned_agent  UUID REFERENCES profiles(id) ON DELETE SET NULL,
+  resolved_at     TIMESTAMPTZ,
+  closed_at       TIMESTAMPTZ,
+  metadata        JSONB NOT NULL DEFAULT '{}',
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX tickets_user_idx ON support_tickets (user_id);
+CREATE INDEX tickets_status_idx ON support_tickets (status);
+CREATE INDEX tickets_order_idx ON support_tickets (order_id) WHERE order_id IS NOT NULL;
+CREATE INDEX tickets_created_at_idx ON support_tickets (created_at DESC);
+
+CREATE TRIGGER support_tickets_updated_at
+  BEFORE UPDATE ON support_tickets
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+
+-- Auto-set resolved_at / closed_at on status transition
+CREATE OR REPLACE FUNCTION handle_ticket_status_transition()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF NEW.status = 'resolved' AND OLD.status <> 'resolved' THEN
+    NEW.resolved_at = now();
+  END IF;
+  IF NEW.status = 'closed' AND OLD.status <> 'closed' THEN
+    NEW.closed_at = now();
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER ticket_status_transition
+  BEFORE UPDATE ON support_tickets
+  FOR EACH ROW EXECUTE FUNCTION handle_ticket_status_transition();
+
+-- ─── TICKET MESSAGES ─────────────────────────────────────────────────────────
+
+CREATE TABLE ticket_messages (
+  id           UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  ticket_id    UUID NOT NULL REFERENCES support_tickets(id) ON DELETE CASCADE,
+  sender_id    UUID REFERENCES profiles(id) ON DELETE SET NULL,
+  sender_name  TEXT NOT NULL,
+  content      TEXT NOT NULL CHECK (char_length(content) BETWEEN 1 AND 4000),
+  is_agent     BOOLEAN NOT NULL DEFAULT false,
+  is_system    BOOLEAN NOT NULL DEFAULT false,
+  attachments  TEXT[] NOT NULL DEFAULT '{}',
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX ticket_messages_ticket_idx ON ticket_messages (ticket_id, created_at ASC);
+
+-- ─── RETURN REQUESTS ─────────────────────────────────────────────────────────
+
+CREATE TABLE return_requests (
+  id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  return_number   TEXT NOT NULL UNIQUE DEFAULT ('RET-' || upper(substring(gen_random_uuid()::text, 1, 6))),
+  user_id         UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  order_id        UUID NOT NULL REFERENCES orders(id) ON DELETE RESTRICT,
+  ticket_id       UUID REFERENCES support_tickets(id) ON DELETE SET NULL,
+  items           JSONB NOT NULL DEFAULT '[]',
+  reason          return_reason NOT NULL,
+  notes           TEXT,
+  status          return_status NOT NULL DEFAULT 'requested',
+  refund_amount   NUMERIC(10, 2),
+  return_label    TEXT,
+  tracking_number TEXT,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX returns_user_idx ON return_requests (user_id);
+CREATE INDEX returns_order_idx ON return_requests (order_id);
+CREATE INDEX returns_status_idx ON return_requests (status);
+
+CREATE TRIGGER return_requests_updated_at
+  BEFORE UPDATE ON return_requests
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+
+-- ─── TICKET NOTIFICATIONS ────────────────────────────────────────────────────
+
+CREATE TABLE ticket_notifications (
+  id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id     UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  ticket_id   UUID NOT NULL REFERENCES support_tickets(id) ON DELETE CASCADE,
+  message     TEXT NOT NULL,
+  read        BOOLEAN NOT NULL DEFAULT false,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX ticket_notifications_user_idx ON ticket_notifications (user_id, read);
+
+-- Auto-notify customer when agent replies
+CREATE OR REPLACE FUNCTION notify_customer_on_agent_reply()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF NEW.is_agent THEN
+    INSERT INTO ticket_notifications (user_id, ticket_id, message)
+    SELECT t.user_id, NEW.ticket_id, 'Support replied to your ticket #' || t.ticket_number
+    FROM support_tickets t
+    WHERE t.id = NEW.ticket_id AND t.user_id <> NEW.sender_id;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+CREATE TRIGGER on_agent_message
+  AFTER INSERT ON ticket_messages
+  FOR EACH ROW EXECUTE FUNCTION notify_customer_on_agent_reply();
+
+-- ─── ROW LEVEL SECURITY (Part 2) ─────────────────────────────────────────────
+
+ALTER TABLE support_tickets ENABLE ROW LEVEL SECURITY;
+ALTER TABLE ticket_messages ENABLE ROW LEVEL SECURITY;
+ALTER TABLE return_requests ENABLE ROW LEVEL SECURITY;
+ALTER TABLE ticket_notifications ENABLE ROW LEVEL SECURITY;
+
+-- Support tickets — users own their tickets
+CREATE POLICY "Users can view own tickets" ON support_tickets
+  FOR SELECT USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can create tickets" ON support_tickets
+  FOR INSERT WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users can update own open tickets" ON support_tickets
+  FOR UPDATE USING (auth.uid() = user_id AND status NOT IN ('closed', 'resolved'));
+
+-- Ticket messages — users see messages on their tickets
+CREATE POLICY "Users can view messages on own tickets" ON ticket_messages
+  FOR SELECT USING (
+    EXISTS (
+      SELECT 1 FROM support_tickets t
+      WHERE t.id = ticket_id AND t.user_id = auth.uid()
+    )
+  );
+
+CREATE POLICY "Users can send messages on own open tickets" ON ticket_messages
+  FOR INSERT WITH CHECK (
+    auth.uid() = sender_id AND
+    EXISTS (
+      SELECT 1 FROM support_tickets t
+      WHERE t.id = ticket_id AND t.user_id = auth.uid() AND t.status NOT IN ('closed')
+    )
+  );
+
+-- Return requests — private
+CREATE POLICY "Users can manage own return requests" ON return_requests
+  FOR ALL USING (auth.uid() = user_id);
+
+-- Notifications — private
+CREATE POLICY "Users can view own notifications" ON ticket_notifications
+  FOR SELECT USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can mark own notifications read" ON ticket_notifications
+  FOR UPDATE USING (auth.uid() = user_id);
+
+-- ─── SUPABASE REALTIME REPLICATION ───────────────────────────────────────────
+
+-- Enable realtime for ticket_messages so clients receive new messages instantly.
+-- Run in Supabase dashboard: Replication → Tables, or via SQL:
+ALTER PUBLICATION supabase_realtime ADD TABLE ticket_messages;
+ALTER PUBLICATION supabase_realtime ADD TABLE support_tickets;
+ALTER PUBLICATION supabase_realtime ADD TABLE ticket_notifications;
+
+-- ─── SEED DATA (Part 2) ──────────────────────────────────────────────────────
+
+-- Example ticket (requires a real user_id substituted in production)
+-- INSERT INTO support_tickets (user_id, subject, category, status)
+-- VALUES ('00000000-0000-0000-0000-000000000000', 'Wrong size received', 'return_request', 'open');
+

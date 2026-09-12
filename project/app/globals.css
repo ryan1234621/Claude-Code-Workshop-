@@ -1,0 +1,206 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ─── CSS Custom Properties ─────────────────────────────────────────────── */
+
+:root {
+  --font-inter: 'Inter', system-ui, sans-serif;
+  --font-playfair: 'Playfair Display', Georgia, serif;
+  --font-mono: 'JetBrains Mono', monospace;
+
+  /* Brand */
+  --color-gold:        #c9a84c;
+  --color-gold-light:  #e2c97e;
+  --color-navy:        #1e3a5f;
+  --color-cream:       #f5f0e8;
+  --color-black:       #0a0a0a;
+  --color-white:       #fafafa;
+
+  /* UI */
+  --navbar-height:     68px;
+  --transition-luxury: 300ms cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+/* ─── Base Reset ────────────────────────────────────────────────────────── */
+
+@layer base {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+
+  html {
+    scroll-behavior: smooth;
+    -webkit-text-size-adjust: 100%;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    font-family: var(--font-inter);
+    background-color: var(--color-white);
+    color: var(--color-black);
+    line-height: 1.6;
+    min-height: 100dvh;
+  }
+
+  /* Headings use serif */
+  h1, h2, h3 {
+    font-family: var(--font-playfair);
+    font-weight: 700;
+    line-height: 1.2;
+    letter-spacing: -0.01em;
+  }
+
+  h4, h5, h6 {
+    font-weight: 600;
+    letter-spacing: 0.02em;
+  }
+
+  img, video {
+    max-width: 100%;
+    display: block;
+  }
+
+  input, button, textarea, select {
+    font: inherit;
+  }
+
+  button {
+    cursor: pointer;
+    border: none;
+    background: none;
+  }
+
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
+
+  /* Focus ring */
+  :focus-visible {
+    outline: 2px solid var(--color-gold);
+    outline-offset: 3px;
+    border-radius: 2px;
+  }
+
+  ::selection {
+    background-color: var(--color-gold);
+    color: var(--color-black);
+  }
+}
+
+/* ─── Component Utilities ───────────────────────────────────────────────── */
+
+@layer components {
+  .container-parmore {
+    @apply max-w-8xl mx-auto px-4 sm:px-6 lg:px-8;
+  }
+
+  /* Typography scale */
+  .display-1 {
+    @apply text-5xl sm:text-6xl lg:text-7xl font-serif font-bold tracking-tight leading-[1.05];
+  }
+
+  .display-2 {
+    @apply text-4xl sm:text-5xl font-serif font-bold tracking-tight;
+  }
+
+  .heading-1 {
+    @apply text-3xl sm:text-4xl font-serif font-bold;
+  }
+
+  .heading-2 {
+    @apply text-2xl sm:text-3xl font-serif font-semibold;
+  }
+
+  .label-caps {
+    @apply text-xs font-semibold tracking-widest uppercase;
+  }
+
+  /* Gold underline accent */
+  .underline-gold {
+    @apply relative inline-block;
+  }
+
+  .underline-gold::after {
+    content: '';
+    @apply absolute bottom-0 left-0 w-full h-px bg-parmore-gold;
+    transform: scaleX(0);
+    transform-origin: left;
+    transition: transform var(--transition-luxury);
+  }
+
+  .underline-gold:hover::after {
+    transform: scaleX(1);
+  }
+
+  /* Gold shimmer text */
+  .text-gold-shimmer {
+    background: linear-gradient(90deg, #c9a84c 0%, #e2c97e 50%, #c9a84c 100%);
+    background-size: 200% auto;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    animation: shimmer 3s linear infinite;
+  }
+
+  /* Luxury card */
+  .card-luxury {
+    @apply bg-white rounded-sm overflow-hidden shadow-luxury transition-shadow duration-300;
+  }
+
+  .card-luxury:hover {
+    @apply shadow-luxury-lg;
+  }
+
+  /* Divider */
+  .divider-gold {
+    @apply w-12 h-px bg-parmore-gold mx-auto;
+  }
+}
+
+/* ─── Utility Overrides ─────────────────────────────────────────────────── */
+
+@layer utilities {
+  .hide-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .hide-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .aspect-product {
+    aspect-ratio: 3 / 4;
+  }
+
+  .aspect-hero {
+    aspect-ratio: 16 / 9;
+  }
+
+  /* Overlay gradient presets */
+  .overlay-dark-bottom {
+    background: linear-gradient(to top, rgba(10,10,10,0.7) 0%, transparent 60%);
+  }
+
+  .overlay-dark-center {
+    background: radial-gradient(ellipse at center, rgba(10,10,10,0.5) 0%, transparent 70%);
+  }
+
+  /* Skeleton shimmer */
+  .skeleton {
+    background: linear-gradient(90deg, #f0f0f0 0%, #e0e0e0 50%, #f0f0f0 100%);
+    background-size: 200% 100%;
+    animation: shimmer 1.5s linear infinite;
+  }
+}
+
+/* ─── Google Fonts Import ────────────────────────────────────────────────── */
+/* Add these in layout.tsx via next/font for optimal performance */

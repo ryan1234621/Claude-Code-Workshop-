@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ShoppingBag, Search, Menu, X, ChevronDown } from 'lucide-react';
 import { useCart } from './CartProvider';
+import { SearchModal } from './SearchModal';
 import { cn } from '@/app/lib/utils';
 
 const NAV_LINKS = [
@@ -29,9 +30,7 @@ export function Navbar() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
   const dropdownRef = useRef<HTMLDivElement>(null);
-  const searchRef = useRef<HTMLInputElement>(null);
 
   const isHome = pathname === '/';
 
@@ -41,9 +40,17 @@ export function Navbar() {
     return () => window.removeEventListener('scroll', onScroll);
   }, []);
 
+  // Cmd+K / Ctrl+K opens search modal
   useEffect(() => {
-    if (searchOpen) searchRef.current?.focus();
-  }, [searchOpen]);
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        setSearchOpen((prev) => !prev);
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, []);
 
   useEffect(() => {
     const close = (e: MouseEvent) => {
@@ -166,16 +173,24 @@ export function Navbar() {
           <div className="flex items-center gap-1">
             {/* Search */}
             <button
-              onClick={() => setSearchOpen((prev) => !prev)}
-              aria-label="Toggle search"
+              onClick={() => setSearchOpen(true)}
+              aria-label="Search (⌘K)"
               className={cn(
-                'p-2 rounded-sm transition-colors duration-200',
+                'flex items-center gap-1.5 p-2 rounded-sm transition-colors duration-200',
                 isTransparent
                   ? 'text-white/80 hover:text-white'
                   : 'text-parmore-black hover:text-parmore-gold'
               )}
             >
               <Search className="h-5 w-5" strokeWidth={1.5} />
+              <kbd className={cn(
+                'hidden sm:flex items-center gap-0.5 px-1.5 py-0.5 rounded text-2xs font-mono transition-colors',
+                isTransparent
+                  ? 'bg-white/10 text-white/60'
+                  : 'bg-zinc-100 text-parmore-slate'
+              )}>
+                ⌘K
+              </kbd>
             </button>
 
             {/* Cart */}
@@ -221,37 +236,10 @@ export function Navbar() {
           </div>
         </div>
 
-        {/* Search Bar */}
-        <AnimatePresence>
-          {searchOpen && (
-            <motion.div
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: 56, opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              transition={{ duration: 0.25 }}
-              className="overflow-hidden border-t border-zinc-100 bg-white"
-            >
-              <div className="container-parmore h-14 flex items-center gap-3">
-                <Search className="h-4 w-4 text-parmore-slate shrink-0" />
-                <input
-                  ref={searchRef}
-                  type="search"
-                  placeholder="Search products, collections..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="flex-1 bg-transparent text-sm text-parmore-black placeholder-parmore-slate outline-none"
-                />
-                <button
-                  onClick={() => { setSearchOpen(false); setSearchQuery(''); }}
-                  className="text-xs text-parmore-slate hover:text-parmore-black transition-colors"
-                >
-                  Cancel
-                </button>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
       </header>
+
+      {/* Search Modal — rendered outside the sticky header to avoid z-index issues */}
+      <SearchModal isOpen={searchOpen} onClose={() => setSearchOpen(false)} />
 
       {/* Mobile Menu */}
       <AnimatePresence>

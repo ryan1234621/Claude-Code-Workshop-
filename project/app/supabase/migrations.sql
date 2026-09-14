@@ -600,3 +600,90 @@ ALTER PUBLICATION supabase_realtime ADD TABLE ticket_notifications;
 -- INSERT INTO support_tickets (user_id, subject, category, status)
 -- VALUES ('00000000-0000-0000-0000-000000000000', 'Wrong size received', 'return_request', 'open');
 
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- Part 3 — Search Events & Recommendation Indexes
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+-- ─── Search Events Table ─────────────────────────────────────────────────────
+-- Persists tokenized search sessions for server-side personalization.
+-- Guest sessions use a cookie-derived session_id; authenticated users have user_id.
+
+CREATE TABLE IF NOT EXISTS search_events (
+  id           uuid         PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id      uuid         REFERENCES profiles(id) ON DELETE SET NULL,
+  session_id   text         NOT NULL,                         -- cookie or client-generated UUID
+  query        text         NOT NULL CHECK (char_length(query) BETWEEN 1 AND 200),
+  terms        text[]       NOT NULL DEFAULT '{}',            -- tokenized, stop-word-stripped tokens
+  page         text,                                          -- pathname where search occurred
+  result_count int          DEFAULT 0,
+  created_at   timestamptz  NOT NULL DEFAULT now()
+);
+
+-- Fast lookup by session (recommendation engine reads last N events per session)
+CREATE INDEX IF NOT EXISTS idx_search_events_session_created
+  ON search_events (session_id, created_at DESC);
+
+-- User-level personalization queries
+CREATE INDEX IF NOT EXISTS idx_search_events_user_created
+  ON search_events (user_id, created_at DESC)
+  WHERE user_id IS NOT NULL;
+
+-- GIN index for array containment queries on terms
+-- e.g. SELECT * FROM search_events WHERE terms @> '{polo}'
+CREATE INDEX IF NOT EXISTS idx_search_events_terms_gin
+  ON search_events USING GIN (terms);
+
+-- RLS
+ALTER TABLE search_events ENABLE ROW LEVEL SECURITY;
+
+-- Users can see their own events
+CREATE POLICY "search_events: user selects own"
+  ON search_events FOR SELECT
+  USING (auth.uid() = user_id OR user_id IS NULL);
+
+-- Anyone can insert (includes unauthenticated via session_id)
+CREATE POLICY "search_events: anyone inserts"
+  ON search_events FOR INSERT
+  WITH CHECK (true);
+
+-- ─── Product Search Performance Indexes ──────────────────────────────────────
+-- Supplement the full-text index from Part 1 with targeted GIN indexes for
+-- tag-array queries and catalog filtering used by the recommendation engine.
+
+-- Fast tag-array containment: WHERE tags @> '{polo}'
+CREATE INDEX IF NOT EXISTS idx_products_tags_gin
+  ON products USING GIN (tags);
+
+-- Composite index for catalog page filters: status + featured + created_at
+CREATE INDEX IF NOT EXISTS idx_products_status_featured
+  ON products (status, featured, created_at DESC);
+
+-- Composite index: status + best_seller for editorial signal queries
+CREATE INDEX IF NOT EXISTS idx_products_status_bestseller
+  ON products (status, best_seller)
+  WHERE status = 'active';
+
+-- Composite index: status + new_arrival
+CREATE INDEX IF NOT EXISTS idx_products_status_new_arrival
+  ON products (status, new_arrival)
+  WHERE status = 'active';
+
+-- ─── Materialized View: Top Terms (optional, for heavy traffic) ──────────────
+-- In production, refresh this every hour via pg_cron or a scheduled function.
+-- Used to warm the recommendation engine without reading raw events each time.
+
+CREATE MATERIALIZED VIEW IF NOT EXISTS mv_top_search_terms AS
+SELECT
+  term,
+  count(*)        AS frequency,
+  max(se.created_at) AS last_seen
+FROM search_events se,
+     LATERAL unnest(se.terms) AS term
+WHERE se.created_at >= now() - interval '7 days'
+GROUP BY term
+ORDER BY frequency DESC
+LIMIT 200;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_mv_top_search_terms_term
+  ON mv_top_search_terms (term);

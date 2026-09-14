@@ -213,3 +213,126 @@ Customer-facing self-service portal: profile/settings, order history with post-p
 - Order tracking webhook integration (carrier APIs)
 - Push/email notifications via ticket_notifications table
 - Review submission from delivered order items
+
+---
+
+## Part 3 — Search Logging, Recommendation Algorithm & Floating Drawer (Build Log)
+
+### Date
+2026-09-14
+
+### Scope
+Client-side and server-side search intent tracking, a custom scoring recommendation engine, and an interactive slide-over recommendation drawer with a full-featured search modal.
+
+---
+
+### Algorithm Design
+
+#### Scoring Weights (`app/lib/recommendationEngine.ts`)
+
+| Signal | Weight | Rationale |
+|---|---|---|
+| Category match | 4.0 | Strongest explicit intent signal |
+| Subcategory match | 2.5 | More specific than category |
+| Tag overlap | 3.0 | Curated editorial signals |
+| Name token match | 2.0 | High precision — user likely searching product name |
+| Description token match | 0.5 | Lower weight — broad semantic overlap |
+| Best seller bonus | 1.0 | Social proof tiebreaker |
+| New arrival bonus | 0.8 | Editorial freshness signal |
+| On sale bonus | 0.5 | Deal discovery intent |
+| Featured bonus | 0.3 | Weak editorial signal |
+
+**Why not TF-IDF or embeddings?**
+The catalog is small (O(100) SKUs) and fully structured. A weighted rule-based scorer is fully explainable, zero-latency, runs on the edge, and is trivially tunable without model retraining. Embeddings are reserved for a future semantic search upgrade when the catalog exceeds ~1,000 SKUs.
+
+#### Synonym Expansion
+Query terms are expanded before scoring using a golf-domain synonym map (e.g. "shirt" → ["apparel", "polo", "top"]). This prevents empty-result scenarios for common vocabulary mismatches.
+
+#### Recency Decay
+When using aggregated history for implicit recommendations, each session's terms are weighted by a half-life of 24 hours:
+`weight = e^(-0.693 × ageHours / 24)`
+Terms from 7 days ago contribute ~0.25× relative to today's searches.
+
+---
+
+### New Files
+
+#### `app/lib/searchHistory.ts`
+- `SearchEvent { query, terms, timestamp, page? }` — stored in `localStorage` under `parmore_search_history`
+- `appendEvent()` — deduplicates within a 5-minute window, caps at 50 events
+- `getTopTerms(n)` — returns n most-frequent terms across history
+- `getRecentQueries(n)` — returns n most-recent unique display queries
+
+#### `app/lib/recommendationEngine.ts`
+- `STOP_WORDS` — common English stop words to filter before scoring
+- `SYNONYMS` — golf-domain synonym expansion map
+- `tokenize(text)` — lowercases, strips punctuation, removes stop words, expands synonyms
+- `scoreProduct(product, terms)` → `ScoredProduct { product, score, matchedTerms }`
+- `rankProducts(products, terms, n)` → top-n sorted by score
+- `aggregateTerms(sessions)` → recency-weighted term list from multiple sessions
+
+#### `app/api/search-events/route.ts`
+- `POST` — accepts `{ query, page? }`, tokenizes, appends to rolling in-memory store (500 cap)
+- Exports `getEventStore()` for server-side consumption by recommendations route
+- Production path: `INSERT INTO search_events (session_id, query, terms, page)`
+
+#### `app/api/recommendations/route.ts`
+- `GET ?terms=...&limit=6` — explicit terms from client take priority
+- Falls back to implicit personalization from server-side event store
+- Scores `MOCK_PRODUCTS` via `rankProducts()`, returns `{ terms, results, count }`
+- Production path: replaces mock catalog with `SELECT * FROM products WHERE status = 'active'`
+
+#### `components/RecommendedProductCard.tsx`
+- Compact 3-column layout: thumbnail | name+price+matched terms | quick-add button
+- Optimistic "Add to Bag" via `CartProvider.dispatch`
+- Success state: button turns green with ✓ for 2 seconds
+- Hover: image scale-105 + gold border reveal
+
+#### `components/RecommendedDrawer.tsx`
+- Floating "For You" pill button (fixed bottom-right, z-40), hides while drawer is open
+- Slide-over from right via spring animation (stiffness 380, damping 38)
+- On open: reads `getTopTerms()` from localStorage and calls `/api/recommendations`
+- States: loading (spinner), error (with retry), empty (prompt to search), results
+- Body scroll lock while open, Escape to close, backdrop click to close
+
+#### `components/SearchModal.tsx`
+- Cmd+K / Ctrl+K global keyboard shortcut (registered in Navbar)
+- Opens above navbar (top: calc(--navbar-height + 16px))
+- Debounced search logging: 800ms after user stops typing → `appendEvent` + `POST /api/search-events`
+- Client-side product filtering via `tokenize()` — real-time, no network call
+- Results grouped by category with section headers
+- Recent searches (chip row) and quick-start suggestions when empty
+- "View all results" footer link → `/shop?q=...`
+
+#### `components/Navbar.tsx` (updated)
+- Replaced inline search bar with `<SearchModal>` rendered outside the sticky header
+- Cmd+K listener added to Navbar's effect suite
+- Search button updated: shows `⌘K` badge on desktop for discoverability
+
+---
+
+### Database (`app/supabase/migrations.sql` — appended)
+- `search_events` table with `user_id`, `session_id`, `query`, `terms[]`, `page`, `result_count`
+- `idx_search_events_session_created` — fast per-session event lookup
+- `idx_search_events_user_created` — user-level personalization
+- `idx_search_events_terms_gin` — GIN index for `terms @> '{polo}'` style containment queries
+- `idx_products_tags_gin` — GIN index on product tags array
+- `idx_products_status_featured` / `status_bestseller` / `status_new_arrival` — composite indexes for editorial filtering
+- `mv_top_search_terms` materialized view — precomputed top-200 terms over last 7 days (refresh via pg_cron in production)
+
+---
+
+### Architecture Notes — Part 3
+
+- **Dual storage**: search events are written to both `localStorage` (client, zero-latency) and `/api/search-events` (server, for cross-session aggregation). The API is non-blocking (fire-and-forget).
+- **Edge-ready**: The recommendation engine is a pure function with no I/O. It can run in a Next.js Edge Runtime function without cold-start penalty.
+- **No tracking IDs**: Guest sessions use only `window.location.pathname` and the query. No cookies or fingerprinting are set client-side.
+- **Testability**: `scoreProduct`, `tokenize`, and `rankProducts` are pure functions with no side effects — unit-testable without mocking.
+
+---
+
+### Next Steps (Part 4+)
+- Checkout flow with Stripe
+- Auth integration — persist `search_events` with `user_id` post-login
+- Refresh `mv_top_search_terms` via pg_cron + expose in admin
+- Semantic search upgrade with pgvector embeddings for catalog > 1,000 SKUs

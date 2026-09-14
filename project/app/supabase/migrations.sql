@@ -687,3 +687,139 @@ LIMIT 200;
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_mv_top_search_terms_term
   ON mv_top_search_terms (term);
+
+-- ============================================================
+-- Part 4: Employee RBAC & Admin Infrastructure
+-- ============================================================
+
+-- ─── Admin Users ─────────────────────────────────────────────────────────────
+
+CREATE TYPE admin_role AS ENUM (
+  'master_admin',
+  'support_agent',
+  'catalog_manager',
+  'analytics_viewer'
+);
+
+CREATE TABLE IF NOT EXISTS admin_users (
+  id            uuid PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  email         text NOT NULL UNIQUE,
+  full_name     text NOT NULL,
+  role          admin_role NOT NULL DEFAULT 'support_agent',
+  scopes        text[] NOT NULL DEFAULT '{}',
+  avatar_initials text NOT NULL DEFAULT '',
+  last_active_at timestamptz,
+  created_at    timestamptz NOT NULL DEFAULT now()
+);
+
+-- Auto-derive initials from full_name on insert/update
+CREATE OR REPLACE FUNCTION derive_admin_initials()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.avatar_initials := upper(substring(split_part(NEW.full_name,' ',1),1,1) ||
+                               substring(split_part(NEW.full_name,' ',2),1,1));
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER admin_users_initials
+  BEFORE INSERT OR UPDATE OF full_name ON admin_users
+  FOR EACH ROW EXECUTE FUNCTION derive_admin_initials();
+
+-- ─── Scope validation helper ──────────────────────────────────────────────────
+
+-- Returns true if the calling admin has the given scope in their admin_users row.
+-- Usage: WHERE has_admin_scope('tickets:resolve')
+CREATE OR REPLACE FUNCTION has_admin_scope(scope text)
+RETURNS boolean AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM admin_users
+    WHERE id = auth.uid()
+      AND scope = ANY(scopes)
+  );
+$$ LANGUAGE sql SECURITY DEFINER STABLE;
+
+-- ─── RLS for admin_users ──────────────────────────────────────────────────────
+
+ALTER TABLE admin_users ENABLE ROW LEVEL SECURITY;
+
+-- Admins can read all admin_users
+CREATE POLICY "Admins can read admin_users" ON admin_users
+  FOR SELECT USING (EXISTS (SELECT 1 FROM admin_users WHERE id = auth.uid()));
+
+-- Only master_admins can write admin_users (insert/update/delete)
+CREATE POLICY "Master admins can manage admin_users" ON admin_users
+  FOR ALL USING (
+    EXISTS (SELECT 1 FROM admin_users WHERE id = auth.uid() AND role = 'master_admin')
+  );
+
+-- ─── Admin audit log ──────────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS admin_audit_log (
+  id           bigserial PRIMARY KEY,
+  admin_id     uuid NOT NULL REFERENCES admin_users(id),
+  action       text NOT NULL,           -- e.g. 'ticket.status_change', 'product.publish'
+  resource_type text NOT NULL,          -- e.g. 'ticket', 'product', 'admin_user'
+  resource_id  text NOT NULL,
+  payload      jsonb DEFAULT '{}',
+  created_at   timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_admin_audit_admin_created
+  ON admin_audit_log (admin_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_admin_audit_resource
+  ON admin_audit_log (resource_type, resource_id, created_at DESC);
+
+ALTER TABLE admin_audit_log ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Admins can read audit log" ON admin_audit_log
+  FOR SELECT USING (EXISTS (SELECT 1 FROM admin_users WHERE id = auth.uid()));
+
+CREATE POLICY "System inserts audit log" ON admin_audit_log
+  FOR INSERT WITH CHECK (admin_id = auth.uid());
+
+-- ─── Ticket resolution RLS additions ─────────────────────────────────────────
+
+-- Allow agents with tickets:write scope to update support_tickets
+CREATE POLICY "Scoped agents can update tickets" ON support_tickets
+  FOR UPDATE USING (has_admin_scope('tickets:write'))
+  WITH CHECK (has_admin_scope('tickets:write'));
+
+-- Allow agents with tickets:resolve to change status to resolved/closed
+CREATE POLICY "Scoped agents can resolve tickets" ON support_tickets
+  FOR UPDATE USING (has_admin_scope('tickets:resolve'))
+  WITH CHECK (has_admin_scope('tickets:resolve'));
+
+-- Allow agents with tickets:write to insert ticket messages
+CREATE POLICY "Agents can send ticket messages" ON ticket_messages
+  FOR INSERT WITH CHECK (
+    has_admin_scope('tickets:write')
+    AND EXISTS (SELECT 1 FROM admin_users WHERE id = auth.uid())
+  );
+
+-- ─── Product management RLS additions ────────────────────────────────────────
+
+CREATE POLICY "Catalog managers can insert products" ON products
+  FOR INSERT WITH CHECK (has_admin_scope('products:write'));
+
+CREATE POLICY "Catalog managers can update products" ON products
+  FOR UPDATE USING (has_admin_scope('products:write'))
+  WITH CHECK (has_admin_scope('products:write'));
+
+CREATE POLICY "Catalog managers can delete products" ON products
+  FOR DELETE USING (has_admin_scope('products:delete'));
+
+-- ─── Default master_admin seed (replace with real auth.uid in production) ────
+
+-- This is a placeholder — wire to a real auth.users row in production.
+-- INSERT INTO admin_users (id, email, full_name, role, scopes)
+-- VALUES (
+--   '00000000-0000-0000-0000-000000000001',
+--   'admin@parmore.com',
+--   'Parmore Admin',
+--   'master_admin',
+--   ARRAY['analytics:read','products:read','products:write','products:delete','products:publish',
+--         'tickets:read','tickets:write','tickets:resolve','tickets:refund',
+--         'team:read','team:write']
+-- ) ON CONFLICT (id) DO NOTHING;

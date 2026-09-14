@@ -336,3 +336,137 @@ Terms from 7 days ago contribute ~0.25× relative to today's searches.
 - Auth integration — persist `search_events` with `user_id` post-login
 - Refresh `mv_top_search_terms` via pg_cron + expose in admin
 - Semantic search upgrade with pgvector embeddings for catalog > 1,000 SKUs
+
+---
+
+## Part 4 — Employee RBAC, Admin Dashboard & Catalog Management (Build Log)
+
+### Date
+2026-09-14
+
+### Scope
+Role-based access control system for admin employees, a fully scope-gated admin portal covering analytics, product catalog CRUD, support ticket management, and team administration.
+
+---
+
+### New Files
+
+#### `app/lib/permissions.ts`
+Defines the RBAC model used across all admin surfaces:
+- `AdminScope` — 11 granular capability strings grouped as: Analytics (1), Catalog (4), Support (4), Team (2)
+- `AdminRole` — 4 roles: `master_admin`, `support_agent`, `catalog_manager`, `analytics_viewer`
+- `AdminUser` interface — extends auth user with `role` + `scopes[]` + display fields
+- `ROLE_DEFAULT_SCOPES` — canonical scope bundles per role (used for presets in UI)
+- Guard functions: `hasScope()`, `hasAnyScope()`, `hasAllScopes()`, `isMasterAdmin()`, `getAllowedSections()`
+- `MOCK_CURRENT_ADMIN` + `MOCK_TEAM_MEMBERS` — 4-member team across all roles
+
+#### Role → Scope Mapping
+
+| Role | Scopes |
+|---|---|
+| `master_admin` | All 11 |
+| `support_agent` | `tickets:read`, `tickets:write`, `tickets:resolve` |
+| `catalog_manager` | `products:read`, `products:write`, `products:delete`, `products:publish` |
+| `analytics_viewer` | `analytics:read` |
+
+Admin users can be granted **any subset** of scopes independent of their role label (role is a display hint; actual capability is determined by `scopes[]`).
+
+#### `components/ui/Table.tsx`
+Reusable, generic data table:
+- Type-safe `TableColumn<T>` with `render`, `accessor`, `sortable`, `align`
+- `SkeletonRow` — animated pulse placeholder while loading
+- Sort state tracked locally; `onSort` callback for server-side sorting
+- `AnimatePresence` motion.tr with stagger delay (i × 30ms)
+- Empty state with optional icon slot
+- `onRowClick` for navigation rows
+
+#### `components/admin/AdminSidebar.tsx`
+- 5 navigation sections; locked items (missing scope) show `Lock` icon and `cursor-not-allowed`
+- Active item: `layoutId="admin-nav-indicator"` spring-animated gold left border
+- Desktop: fixed `left-0`, `top: var(--navbar-height)`, `w-60`
+- Mobile: h-12 top bar + AnimatePresence slide-in drawer with backdrop
+
+#### `components/admin/AnalyticsChart.tsx`
+- `AnimatedCounter` — framer-motion `useMotionValue` animated from 0 to target with easeOut
+- `KpiCard` — metric + icon + optional sparkline + trend indicator (TrendingUp/Down)
+- `Sparkline` — pure SVG, 280px wide, gradient fill, no external chart library
+- `HBarChart` — framer-motion width-animated bars, stagger entrance, value labels inside bars
+- `ChartSection` — consistent card wrapper with title/subtitle
+
+#### `components/admin/ScopeSelector.tsx`
+- Groups ALL_SCOPES by display group (Analytics / Catalog / Support / Team)
+- Role preset buttons apply canonical scope bundle for that role
+- Custom checkbox UI — gold border + black fill when checked
+- `<code>` tag showing the scope key (e.g. `tickets:refund`) for developer clarity
+- Summary: "N of 11 scopes granted"
+
+#### `components/admin/TicketResolutionBar.tsx`
+- Status transition map defining valid progressions (e.g. `in_review → actioned|resolved|closed`)
+- Double-confirm for close action: first click enters confirm state, second executes
+- Refund form: collapsed `AnimatePresence` with amount + reason inputs
+- Scope-gated: `tickets:resolve` for status buttons; `tickets:refund` for refund section
+- Loading spinners on in-flight operations; all buttons disabled during pending
+
+#### `components/admin/ProductEditorModal.tsx`
+- Right slide-over panel (spring stiffness 340, damping 38)
+- Collapsible sections: Basic Info, Pricing, Variants, Publishing
+- Variant editor: color name + hex picker + SKU + stock-by-size grid (7 sizes)
+- Tags: inline chip list with add/remove; Enter key shortcut
+- Publishing flags: Featured / Best Seller / New Arrival checkboxes
+- Status toggle: Active / Draft / Archived button group
+- Validates required fields before calling `onSave(data: Partial<Product>)`
+
+#### Admin Pages
+
+| Page | Scope Required | Key Features |
+|---|---|---|
+| `app/admin/layout.tsx` | Any | RBAC gatekeeper, AdminSidebar, unauthorized fallback |
+| `app/admin/page.tsx` | — | Redirects to first allowed section |
+| `app/admin/analytics/page.tsx` | `analytics:read` | KPI row, sparklines, search terms HBarChart, funnel, top-products table |
+| `app/admin/products/page.tsx` | `products:read` | Status filter chips, Table with inline actions (edit/publish/archive), ProductEditorModal |
+| `app/admin/tickets/page.tsx` | `tickets:read` | Status + category filter chips, Table with row-click nav |
+| `app/admin/tickets/[id]/page.tsx` | `tickets:read` | TicketChat (agent mode), TicketResolutionBar, ticket detail sidebar |
+| `app/admin/team/page.tsx` | `team:read` | Expandable member rows with ScopeSelector, Add Admin form |
+
+#### Database (`app/supabase/migrations.sql` — Part 4 appended)
+- `admin_role` ENUM
+- `admin_users` table — auth.users FK, `role`, `scopes[]`
+- `derive_admin_initials()` trigger — auto-derives avatar initials from `full_name`
+- `has_admin_scope(scope text)` — SECURITY DEFINER helper used in RLS policies
+- `admin_audit_log` table — immutable record of all admin actions with resource type/id/payload
+- RLS additions for `support_tickets`, `ticket_messages`, `products` scoped to admin role functions
+
+---
+
+### Security Model
+
+```
+auth.uid()
+  └─ admin_users (role, scopes[])
+       └─ has_admin_scope(scope) ─── used in ALL admin RLS policies
+```
+
+1. **Browser guard** (`hasScope()`) — prevents rendering protected UI for users lacking a scope. Fast, UX-level protection.
+2. **Database guard** (`has_admin_scope()`) — enforces the same rules in RLS. Even if the browser guard is bypassed, the DB query returns no rows.
+3. **Service role** — product mutations and ticket status transitions use the Supabase service role key server-side (Next.js Route Handlers), never the browser client.
+4. **Audit trail** — every admin action (status change, publish, refund) is logged to `admin_audit_log` before the primary mutation. Log rows are immutable (no UPDATE/DELETE policy).
+
+---
+
+### Architecture Notes — Part 4
+
+- **Layout redirect pattern**: `app/admin/page.tsx` immediately redirects to the first section the admin has access to. This means bookmarking `/admin` always lands somewhere useful, even as scopes change.
+- **Mock-first development**: All admin pages use `MOCK_CURRENT_ADMIN` and mock data. Swapping to live data requires only replacing the mock imports with Supabase queries — the component interfaces are identical.
+- **No server components in editor modals**: `ProductEditorModal` and `ScopeSelector` are `'use client'` components with local state. Admin mutations are optimistic on the client and fire a mock async delay. In production, these call Route Handlers that use the service role client.
+- **Separation of display role vs. effective scopes**: The `role` field on `AdminUser` is a display label and preset anchor. The `scopes[]` array is the source of truth for authorization. A support agent can be granted `products:read` without changing their role.
+
+---
+
+### Next Steps
+
+- Auth integration: `MOCK_CURRENT_ADMIN` → `session.user` with `admin_users` lookup
+- Stripe checkout + order fulfillment admin view
+- Real-time ticket queue with unread count badge in AdminSidebar
+- Product image upload via Supabase Storage
+- Refresh `mv_top_search_terms` via pg_cron and surface in admin analytics
+- Semantic search upgrade (pgvector) for catalog > 1,000 SKUs

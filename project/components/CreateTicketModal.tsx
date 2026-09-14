@@ -307,7 +307,7 @@ export function CreateTicketModal({
                     onChange={(e) => setMessage(e.target.value)}
                     placeholder={
                       isReturn
-                        ? 'Tell us more about the issue and what you'd like: exchange, refund, or store credit.'
+                        ? "Tell us more about the issue and what you'd like: exchange, refund, or store credit."
                         : 'Describe your issue in detail. Include any relevant order numbers, photos, or context.'
                     }
                     rows={5}

@@ -4,14 +4,15 @@ import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { motion } from 'framer-motion';
-import { User, Package, MessageSquare, ChevronRight, LogOut } from 'lucide-react';
+import { User, Package, MessageSquare, RotateCcw, ChevronRight, LogOut } from 'lucide-react';
 import { MOCK_USER } from '@/app/lib/mockData';
 import { cn } from '@/app/lib/utils';
 
 const NAV_TABS = [
-  { href: '/account',         label: 'Profile',         icon: User },
-  { href: '/account/orders',  label: 'Orders',          icon: Package },
-  { href: '/account/tickets', label: 'Support',         icon: MessageSquare },
+  { href: '/account',          label: 'Profile',  icon: User },
+  { href: '/account/orders',   label: 'Orders',   icon: Package },
+  { href: '/account/returns',  label: 'Returns',  icon: RotateCcw },
+  { href: '/account/tickets',  label: 'Support',  icon: MessageSquare },
 ];
 
 export default function AccountLayout({ children }: { children: React.ReactNode }) {

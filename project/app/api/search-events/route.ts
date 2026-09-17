@@ -50,3 +50,10 @@ export async function POST(req: NextRequest) {
 export function getEventStore() {
   return eventStore;
 }
+
+// Append a pre-built event (used by /api/track-view).
+export function appendEvent(event: { query: string; timestamp: string }): void {
+  const terms = tokenize(event.query);
+  eventStore.push({ query: event.query, terms, timestamp: event.timestamp });
+  if (eventStore.length > MAX_STORE_SIZE) eventStore.shift();
+}

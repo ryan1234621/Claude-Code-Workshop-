@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { Printer, QrCode, MapPin, Package, CheckCircle2, Clock } from 'lucide-react';
 import type { ReturnRequest } from '@/app/lib/types';
@@ -29,6 +29,17 @@ export function ReturnLabelViewer({
   const statusConfig = returnStatusConfig(returnRequest.status);
   const tierConfig = riskTierConfig(riskTier);
   const isPendingReview = returnRequest.status === 'requested' && !labelUrl;
+
+  // Deterministic barcode pattern seeded from return_number — avoids server/client mismatch
+  const barcodeBars = useMemo(() => {
+    let h = 0;
+    const seed = returnRequest.return_number;
+    for (let i = 0; i < seed.length; i++) h = (Math.imul(31, h) + seed.charCodeAt(i)) | 0;
+    return Array.from({ length: 60 }, () => {
+      h = (Math.imul(1664525, h) + 1013904223) | 0;
+      return (h >>> 0) / 0xffffffff > 0.4;
+    });
+  }, [returnRequest.return_number]);
 
   const handlePrint = () => {
     if (labelUrl) {
@@ -159,11 +170,11 @@ export function ReturnLabelViewer({
               </div>
               {/* Barcode mock */}
               <div className="pt-1 flex gap-px h-10">
-                {Array.from({ length: 60 }).map((_, i) => (
+                {barcodeBars.map((filled, i) => (
                   <div
                     key={i}
                     className="flex-1 bg-parmore-black"
-                    style={{ opacity: Math.random() > 0.4 ? 1 : 0 }}
+                    style={{ opacity: filled ? 1 : 0 }}
                   />
                 ))}
               </div>

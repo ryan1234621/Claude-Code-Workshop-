@@ -1,4 +1,6 @@
-import React from 'react';
+'use client';
+
+import React, { useId } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { cn } from '@/app/lib/utils';
 
@@ -18,7 +20,8 @@ interface SelectProps extends Omit<React.SelectHTMLAttributes<HTMLSelectElement>
 
 export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
   ({ options, placeholder, label, error, className, onChange, id, ...props }, ref) => {
-    const selectId = id ?? `select-${Math.random().toString(36).slice(2)}`;
+    const generatedId = useId();
+    const selectId = id ?? generatedId;
 
     return (
       <div className="flex flex-col gap-1">

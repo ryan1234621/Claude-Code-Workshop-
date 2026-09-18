@@ -153,7 +153,7 @@ export function Footer() {
       {/* Bottom bar */}
       <div className="border-t border-white/10">
         <div className="container-parmore py-5 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-white/30">
-          <p>&copy; {new Date().getFullYear()} Parmore Golf LLC. All rights reserved.</p>
+          <p suppressHydrationWarning>&copy; {new Date().getFullYear()} Parmore Golf LLC. All rights reserved.</p>
           <div className="flex gap-4">
             <Link href="/privacy" className="hover:text-white/60 transition-colors">Privacy</Link>
             <Link href="/terms" className="hover:text-white/60 transition-colors">Terms</Link>

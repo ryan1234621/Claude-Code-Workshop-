@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ShoppingBag, Search, Menu, X, ChevronDown, LogIn } from 'lucide-react';
+import { ShoppingBag, Search, Menu, X, ChevronDown, LogIn, UserCircle2, UserPlus } from 'lucide-react';
 import { useCart } from './CartProvider';
 import { SearchModal } from './SearchModal';
 import { UserMenuDropdown } from './auth/UserMenuDropdown';
@@ -32,7 +32,9 @@ export function Navbar() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [accountOpen, setAccountOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const accountRef = useRef<HTMLDivElement>(null);
   const { user } = useUserSession();
 
   const isHome = pathname === '/';
@@ -59,6 +61,16 @@ export function Navbar() {
     const close = (e: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
         setActiveDropdown(null);
+      }
+    };
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, []);
+
+  useEffect(() => {
+    const close = (e: MouseEvent) => {
+      if (accountRef.current && !accountRef.current.contains(e.target as Node)) {
+        setAccountOpen(false);
       }
     };
     document.addEventListener('mousedown', close);
@@ -223,23 +235,61 @@ export function Navbar() {
               </AnimatePresence>
             </button>
 
-            {/* User menu / sign-in */}
-            <div className="hidden md:block">
+            {/* User menu / account */}
+            <div className="hidden md:block" ref={accountRef}>
               {user ? (
                 <UserMenuDropdown user={user} />
               ) : (
-                <Link
-                  href="/login"
-                  className={cn(
-                    'flex items-center gap-1.5 px-3 py-2 rounded-sm text-xs font-semibold transition-colors duration-200',
-                    isTransparent
-                      ? 'text-white/80 hover:text-white'
-                      : 'text-parmore-black hover:text-parmore-gold'
-                  )}
-                >
-                  <LogIn className="h-4 w-4" strokeWidth={1.5} />
-                  Sign In
-                </Link>
+                <div className="relative">
+                  <button
+                    onClick={() => setAccountOpen((prev) => !prev)}
+                    aria-label="Account"
+                    className={cn(
+                      'flex items-center gap-1.5 px-3 py-2 rounded-sm text-xs font-semibold transition-colors duration-200',
+                      isTransparent
+                        ? 'text-white/80 hover:text-white'
+                        : 'text-parmore-black hover:text-parmore-gold'
+                    )}
+                  >
+                    <UserCircle2 className="h-4 w-4" strokeWidth={1.5} />
+                    Account
+                    <ChevronDown
+                      className={cn(
+                        'h-3 w-3 transition-transform duration-200',
+                        accountOpen && 'rotate-180'
+                      )}
+                    />
+                  </button>
+                  <AnimatePresence>
+                    {accountOpen && (
+                      <motion.div
+                        initial={{ opacity: 0, y: 8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: 8 }}
+                        transition={{ duration: 0.15 }}
+                        className="absolute top-full right-0 mt-1 min-w-[180px] bg-white rounded-sm shadow-luxury-lg border border-zinc-100 py-1 z-50"
+                      >
+                        <Link
+                          href="/login"
+                          onClick={() => setAccountOpen(false)}
+                          className="flex items-center gap-2.5 px-4 py-2.5 text-sm text-parmore-black hover:bg-parmore-cream hover:text-parmore-gold transition-colors"
+                        >
+                          <LogIn className="h-4 w-4" strokeWidth={1.5} />
+                          Sign In
+                        </Link>
+                        <div className="my-1 border-t border-zinc-100" />
+                        <Link
+                          href="/register"
+                          onClick={() => setAccountOpen(false)}
+                          className="flex items-center gap-2.5 px-4 py-2.5 text-sm text-parmore-black hover:bg-parmore-cream hover:text-parmore-gold transition-colors"
+                        >
+                          <UserPlus className="h-4 w-4" strokeWidth={1.5} />
+                          Create Account
+                        </Link>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
               )}
             </div>
 
@@ -308,6 +358,34 @@ export function Navbar() {
                     ))}
                   </div>
                 ))}
+                <div className="mt-2 pt-2 border-t border-zinc-100">
+                  {user ? (
+                    <Link
+                      href="/account"
+                      className="flex items-center gap-2.5 px-5 py-3 text-sm font-medium text-parmore-black hover:text-parmore-gold hover:bg-parmore-cream transition-colors"
+                    >
+                      <UserCircle2 className="h-4 w-4" strokeWidth={1.5} />
+                      My Account
+                    </Link>
+                  ) : (
+                    <>
+                      <Link
+                        href="/login"
+                        className="flex items-center gap-2.5 px-5 py-3 text-sm font-medium text-parmore-black hover:text-parmore-gold hover:bg-parmore-cream transition-colors"
+                      >
+                        <LogIn className="h-4 w-4" strokeWidth={1.5} />
+                        Sign In
+                      </Link>
+                      <Link
+                        href="/register"
+                        className="flex items-center gap-2.5 px-5 py-3 text-sm font-medium text-parmore-black hover:text-parmore-gold hover:bg-parmore-cream transition-colors"
+                      >
+                        <UserPlus className="h-4 w-4" strokeWidth={1.5} />
+                        Create Account
+                      </Link>
+                    </>
+                  )}
+                </div>
               </div>
               <div className="absolute bottom-0 left-0 right-0 p-5 border-t border-zinc-100">
                 <p className="text-xs text-parmore-slate tracking-wider uppercase">

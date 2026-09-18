@@ -4,9 +4,11 @@ import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ShoppingBag, Search, Menu, X, ChevronDown } from 'lucide-react';
+import { ShoppingBag, Search, Menu, X, ChevronDown, LogIn } from 'lucide-react';
 import { useCart } from './CartProvider';
 import { SearchModal } from './SearchModal';
+import { UserMenuDropdown } from './auth/UserMenuDropdown';
+import { useUserSession } from '@/lib/auth/useUserSession';
 import { cn } from '@/app/lib/utils';
 
 const NAV_LINKS = [
@@ -31,6 +33,7 @@ export function Navbar() {
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const { user } = useUserSession();
 
   const isHome = pathname === '/';
 
@@ -219,6 +222,26 @@ export function Navbar() {
                 )}
               </AnimatePresence>
             </button>
+
+            {/* User menu / sign-in */}
+            <div className="hidden md:block">
+              {user ? (
+                <UserMenuDropdown user={user} />
+              ) : (
+                <Link
+                  href="/login"
+                  className={cn(
+                    'flex items-center gap-1.5 px-3 py-2 rounded-sm text-xs font-semibold transition-colors duration-200',
+                    isTransparent
+                      ? 'text-white/80 hover:text-white'
+                      : 'text-parmore-black hover:text-parmore-gold'
+                  )}
+                >
+                  <LogIn className="h-4 w-4" strokeWidth={1.5} />
+                  Sign In
+                </Link>
+              )}
+            </div>
 
             {/* Mobile menu toggle */}
             <button

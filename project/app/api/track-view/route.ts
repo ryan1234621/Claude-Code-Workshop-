@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getEventStore, appendEvent } from '@/app/api/search-events/route';
+import { getEventStore, appendEvent } from '@/app/lib/eventStore';
 
 export interface TrackViewPayload {
   slug: string;

@@ -1,16 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { tokenize } from '@/app/lib/recommendationEngine';
-
-// In-memory event store for the demo. In production, replace with:
-//   INSERT INTO search_events (user_id, session_id, query, terms, page)
-// The Supabase table (migrations.sql) is already set up for this.
-const MAX_STORE_SIZE = 500;
-const eventStore: Array<{
-  query: string;
-  terms: string[];
-  timestamp: string;
-  page?: string;
-}> = [];
+import { pushEvent } from '@/app/lib/eventStore';
 
 export async function POST(req: NextRequest) {
   let body: unknown;
@@ -40,20 +30,7 @@ export async function POST(req: NextRequest) {
     page: typeof page === 'string' ? page : undefined,
   };
 
-  eventStore.push(event);
-  if (eventStore.length > MAX_STORE_SIZE) eventStore.shift(); // rolling window
+  pushEvent(event);
 
   return NextResponse.json({ success: true, terms }, { status: 200 });
-}
-
-// Export the store so the recommendations route can read it server-side.
-export function getEventStore() {
-  return eventStore;
-}
-
-// Append a pre-built event (used by /api/track-view).
-export function appendEvent(event: { query: string; timestamp: string }): void {
-  const terms = tokenize(event.query);
-  eventStore.push({ query: event.query, terms, timestamp: event.timestamp });
-  if (eventStore.length > MAX_STORE_SIZE) eventStore.shift();
 }

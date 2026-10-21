@@ -3,7 +3,7 @@ import { tokenize, rankProducts, aggregateTerms } from '@/app/lib/recommendation
 import { hybridRank } from '@/app/lib/recommendations/scoringMatrix';
 import type { IntentContext } from '@/app/lib/recommendations/scoringMatrix';
 import { MOCK_PRODUCTS } from '@/app/lib/mockData';
-import { getEventStore } from '@/app/api/search-events/route';
+import { getEventStore } from '@/app/lib/eventStore';
 
 const DEFAULT_LIMIT = 6;
 const MAX_LIMIT = 20;
